@@ -9,7 +9,7 @@ import 'react-pdf/dist/Page/TextLayer.css';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
-const S3_UPLOAD_URL = process.env.REACT_APP_S3_UPLOAD_URL;
+const GET_UPLOAD_URL = process.env.REACT_APP_GET_UPLOAD_URL;
 const CHAT_API_URL = process.env.REACT_APP_CHAT_API_URL;
 const LIST_DOCUMENTS_API_URL = process.env.REACT_APP_LIST_DOCUMENTS_API_URL;
 
@@ -381,20 +381,38 @@ function Dashboard() {
   };
 
   const handleUpload = async () => {
-    if (!selectedFile || !userId) { setUploadStatus({ type: 'error', message: 'Select a file' }); return; }
+    if (!selectedFile || !userId) { 
+      setUploadStatus({ type: 'error', message: 'Select a file' }); 
+      return; 
+    }
+    
     setIsUploading(true);
     setUploadStatus({ type: null, message: '' });
+    
     try {
-      const uploadUrl = `${S3_UPLOAD_URL}/${encodeURIComponent(userId)}/${encodeURIComponent(selectedFile.name)}`;
-      await axios.put(uploadUrl, selectedFile, { headers: { 'Content-Type': 'application/pdf' } });
+      // 1. Ask Python Backend for a Secure SAS Upload Link
+      const sasResponse = await axios.post(GET_UPLOAD_URL, {
+        filename: selectedFile.name,
+        user_id: userId
+      });
+      const { uploadUrl } = sasResponse.data;
+
+      // 2. Upload directly to Azure Blob Storage
+      await axios.put(uploadUrl, selectedFile, { 
+        headers: { 
+          'Content-Type': 'application/pdf',
+          'x-ms-blob-type': 'BlockBlob' 
+        } 
+      });
+
       setUploadStatus({ type: 'success', message: 'Uploaded' });
       setSelectedFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (fileInputRef.current) fileInputRef.current.value = ''; 
       setRefreshTrigger(prev => prev + 1);
       setTimeout(() => setUploadStatus({ type: null, message: '' }), 2000);
     } catch (error) {
       console.error('Upload error:', error);
-      setUploadStatus({ type: 'error', message: 'Failed' });
+      setUploadStatus({ type: 'error', message: 'Upload failed' });
     } finally {
       setIsUploading(false);
     }
